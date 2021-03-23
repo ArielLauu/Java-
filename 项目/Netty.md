@@ -9,7 +9,7 @@ Netty 是一个**基于 NIO** 的 client-server网络应用程序框架，封装
 使用Netty主要因为其以下特点和优势：
 
 - **使用简单**：封装了 NIO 的很多细节，使用更简单。 
-- **功能强大**：预置了多种编解码功能，支持多种主流协议。 
+- **功能强大**：预置了多种编解码功能，支持多种主流协议（FTP，SMTP，HTTP等）。 
 - **定制能力强**：可以通过 ChannelHandler 对通信框架进行灵活地扩展。 
 - **性能高**：通过与其他业界主流的 NIO 框架对比，Netty的综合性能最优。 
 
@@ -90,7 +90,7 @@ Netty主要**基于主从Reactors多线程模型**做了一定的修改，其中
 - SubReactor负责相应通道的IO读写请求
 - 非IO请求（具体逻辑处理）的任务则会直接写入队列，等待worker threads进行处理
 
-Netty的主Reactor体现为bossGroup，从Reactor体现为workerGroup。bossGroup不断监听是否有客户端的连接，当发现一个新的客户端连接到来时，bossGroup就会为此链接初始化各种资源，然后从workerGroup中选一个EventLoop绑定到此客户端的链接中。接下来服务器与客户端的链接，就全在此分配的eventLoop中了Selector
+Netty的主Reactor体现为**bossGroup**，从Reactor体现为**workerGroup**。bossGroup不断监听是否有客户端的连接，当发现一个新的客户端连接到来时，bossGroup就会为此链接初始化各种资源，然后从workerGroup中选一个EventLoop绑定到此客户端的链接中。接下来服务器与客户端的链接，就全在此分配的eventLoop中的Selector
 
 **Selector**
 
@@ -114,7 +114,7 @@ Netty基于Selector对象实现I/O多路复用，通过 Selector, 一个线程�
 
 **epoll可以理解为event poll**，**一旦基于某个文件描述符就绪时，内核会采用类似callback的回调机制，迅速激活这个文件描述符，当进程调用epoll_wait() 时便得到通知**。(此处去掉了遍历文件描述符，而是通过监听回调的机制)
 
-**优点:** 通过监听回调机制，时间复杂度是 O(1) 内存拷贝，利用mmap()文件映射内存加速与内核空间的消息传递；即epoll使用mmap减少复制开销 没有最大并发连接的限制，能打开的FD的上限远大于1024 支持边缘触发(ET)
+**优点:** 通过监听回调机制，时间复杂度是 O(1)，内存拷贝，利用mmap()文件映射内存加速与内核空间的消息传递；即epoll使用mmap减少复制开销 没有最大并发连接的限制，能打开的FD的上限远大于1024 支持边缘触发(ET)
 
 **5. 两种触发模式**
 
@@ -123,6 +123,70 @@ LT是默认的模式，ET是“高速”模式。LT模式下，只要这个fd还
 **ET 模式比水平触发效率高，系统不会充斥大量你不关心的就绪文件描述符**
 
 如果采用EPOLLLT模式的话，系统中一旦有大量你不需要读写的就绪文件描述符，它们每次调用epoll_wait都会返回，这样会大大降低处理程序检索自己关心的就绪文件描述符的效率.。而采用EPOLLET这种边沿触发模式的话，当被监控的文件描述符上有可读写事件发生时，epoll_wait()会通知处理程序去读写。如果这次没有把数据全部读写完(如读写缓冲区太小)，那么下次调用epoll_wait()时，它不会通知你，也就是它只会通知你一次，直到该文件描述符上出现第二次可读写事件才会通知你
+
+---
+
+### Netty核心组件
+
+**1. Channel**
+
+`Channel`接口是对网络操作的抽象类，包括基本的IO操作，如`bind()`、`connect()`、`read()`、`write()`
+
+比较常用的`Channel`接口实现类是`NioServerSocketChannel`（服务端）和`NioSocketChannel`（客户端），这两个 `Channel` 可以和 BIO 编程模型中的`ServerSocket`以及`Socket`两个概念对应上。Netty 的 `Channel` 接口所提供的 API，大大地降低了直接使用 Socket 类的复杂性。
+
+**2. EventLoop**
+
+EventLoop 定义了 Netty 的核心抽象，用于**处理连接的生命周期中所发生的事件**。说白了，**`EventLoop` 的主要作用实际就是负责监听网络事件并调用事件处理器进行相关 I/O 操作的处理。**
+
+-  `Channel` 和 `EventLoop` 的联系：`Channel` 为 Netty 网络操作(读写等操作)抽象类，`EventLoop` 负责处理注册到其上的`Channel` 处理 I/O 操作，两者配合参与 I/O 操作。
+
+**3. ChannelFuture**
+
+Netty 是异步非阻塞的，所有的 I/O 操作都为异步的。
+
+因此，我们不能立刻得到操作是否执行成功，但是，你可以通过 `ChannelFuture` 接口的 `addListener()` 方法注册一个 `ChannelFutureListener`，当操作执行成功或者失败时，监听就会自动触发返回结果。
+
+并且，你还可以通过`ChannelFuture` 的 `channel()` 方法获取关联的`Channel`
+
+**4. ChannelHandler 和 ChannelPipeline**
+
+`ChannelHandler` 是消息的具体处理器。他负责处理读写操作、客户端连接等事情。
+
+`ChannelPipeline` 为 `ChannelHandler` 的链，提供了一个容器并定义了用于沿着链传播入站和出站事件流的 API 。当 `Channel` 被创建时，它会被自动地分配到它专属的 `ChannelPipeline`。
+
+我们可以在 `ChannelPipeline` 上通过 `addLast()` 方法添加一个或者多个`ChannelHandler` ，因为一个数据或者事件可能会被多个 Handler 处理。当一个 `ChannelHandler` 处理完之后就将数据交给下一个 `ChannelHandler` 。
+
+---
+
+### EventLoopGroup
+
+`EventLoopGroup` 包含多个 `EventLoop`（每一个 `EventLoop` 通常内部包含一个线程），上面我们已经说了 `EventLoop` 的主要作用实际就是负责监听网络事件并调用事件处理器进行相关 I/O 操作的处理。
+
+并且 `EventLoop` 处理的 I/O 事件都将在它专有的 `Thread` 上被处理，即 `Thread` 和 `EventLoop` 属于 1 : 1 的关系，从而保证线程安全。
+
+![img](https://typora-image-ariellauu.oss-cn-beijing.aliyuncs.com/uPic/2a5a4a71-cfb7-4735-bf5c-6a57007c82ec.png)
+
+上图是一个服务端对 `EventLoopGroup` 使用的大致模块图，其中 **`Boss EventloopGroup` 用于接收连接**，**`Worker EventloopGroup` 用于具体的处理**（消息的读写以及其他逻辑处理）。
+
+从上图可以看出： 当客户端通过 `connect` 方法连接服务端时，`bossGroup` 处理客户端连接请求。当客户端处理完成后，会将这个连接提交给 `workerGroup` 来处理，然后 `workerGroup` 负责处理其 IO 相关操作。
+
+---
+
+### NioEventLoopGroup 默认的构造函数会起多少线程
+
+**CPU核心数*2**
+
+```java
+// 从1，系统属性，CPU核心数*2 这三个值中取出一个最大的
+//可以得出 DEFAULT_EVENT_LOOP_THREADS 的值为CPU核心数*2
+private static final int DEFAULT_EVENT_LOOP_THREADS = Math.max(1, 		   SystemPropertyUtil.getInt("io.netty.eventLoopThreads", NettyRuntime.availableProcessors() * 2));
+
+// 被调用的父类构造函数，NioEventLoopGroup 默认的构造函数会起多少线程的秘密所在
+// 当指定的线程数nThreads为0时，使用默认的线程数DEFAULT_EVENT_LOOP_THREADS
+protected MultithreadEventLoopGroup(int nThreads, ThreadFactory threadFactory, Object... args) {
+  super(nThreads == 0 ? DEFAULT_EVENT_LOOP_THREADS : nThreads, threadFactory, args);
+}
+```
 
 ---
 
@@ -228,6 +292,8 @@ Mina，和Netty同一个人设计的
 
 ### 项目如果要实现内存零拷贝怎么做
 
+在 OS 层面上的 `Zero-copy` 通常指避免在 `用户态(User-space)` 与 `内核态(Kernel-space)` 之间来回拷贝数据。而在 Netty 层面 ，零拷贝主要体现在**对于数据操作的优化**。
+
 Netty的内存零拷贝体现在：
 
 1. **DIRECT BUFFERS（堆外内存）**：Netty 的接收和发送 ByteBuffer 采用 DIRECT BUFFERS，使用堆外直接内存进行 Socket 读写，不需要进行字节缓冲区的二次拷贝。如果使用传统的堆内存（HEAP BUFFERS）进行 Socket 读写，JVM 会将堆内存 Buffer 拷贝一份到直接内存中，然后才写入 Socket 中。相比于堆外直接内存，消息在发送过程中多了一次缓冲区的内存拷贝。
@@ -252,26 +318,6 @@ Kryo是专门专对Java语言的，性能非常好
 **2. Protobuf**
 
 出自Google，性能比较优秀，支持多种语言，同时跨平台。使用比较繁琐，需要自定义proto文件，用来完成Java对象中的基本数据类型和GPB自己定义的类型之间的一个映射。Java中通过与ProtoStuff的结合，使用更加简便了，无需手动编写proto文件
-
----
-
-### Java Serializable和Externalizable
-
-**1. Serializable**
-
-**性能**：Java序列化会把要序列化的对象类的**元数据和业务数据全部序列化**成字节流，而且是**把整个继承关系上的东西全部序列化**了。它序列化出来的字节流是对那个对象结构到内容的完全描述，包含所有的信息，因此效率较低而且字节流比较大。[序列化过程](https://www.jb51.net/article/36408.htm)
-
-**安全性**：比如一个对象拥有private，public等field，对于一个要传输的对象，比如写到文件，或者进行rmi传输等等，在序列化进行传输的过程中，这个对象的**private域是不受保护的**
-
-**2. Externalizable**
-
-使用该接口之后，之前基于Serializable接口的序列化机制就将失效，序列化的细节需要由程序员去完成。
-
-若使用Externalizable进行序列化，当读取对象时，会调用被序列化类的**无参构造器去创建一个新的对象**，然后再将被保存对象的字段的值分别填充到新对象中。由于这个原因，实现Externalizable接口的类必须要提供一个无参的构造器，且它的访问权限为public
-
-自定制序列化的方法：writeExternal()与readExternal()方法
-
-[Java Serializable（序列化）的理解和总结](https://www.cnblogs.com/yangjian-java/p/7813623.html)
 
 ---
 

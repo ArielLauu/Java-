@@ -8,7 +8,7 @@
 
 通过zookeeper实现的服务注册和发现
 
-**服务注册**：服务注册的时候，将完整的服务名称rpcServiceName(className+group+version)作为根节点，子节点是对应的服务地址(ip+端口号)。如果相同服务被部署多份，一个根节点会对应多个子节点。
+**服务注册**：服务注册的时候，将完整的服务名称rpcServiceName(className+group+version)作为父节点，子节点是对应的服务地址(ip+端口号)。如果相同服务被部署多份，一个父亲节点会对应多个子节点。
 
 **服务发现**：当我们要获取某个服务的对应地址，直接根据完整服务名获得其下所有子节点，然后根据负载均衡策略取出一个就行了。同时对服务节点设置watcher。
 
@@ -26,21 +26,28 @@
 
 - **一致性（Consistence）** : 所有节点访问同一份最新的数据副本
 - **可用性（Availability）**: 非故障的节点在合理的时间内返回合理的响应（不是错误或者超时的响应）。
-- **分区容错性（Partition tolerance）** : 分布式系统出现网络分区的时候，仍然能够对外提供服务。
+- **分区容错性（Partition tolerance）** : 分布式系统出现网络分区的时候，仍然能够对外提供服务。（以实际效果而言，分区相当于对通信的时限要求。系统如果不能在时限内达成数据一致性，就意味着发生了分区的情况，必须就当前操作在 C 和 A 之间做出选择。）
 
 ---
 
-#### 为什么用Zookeeper做注册中心(优点，与其他选型对比下) (待整理)
+#### 为什么用Zookeeper做注册中心(优点，与其他选型对比下) 
 
-**常见注册中心**
+**1. 常见注册中心**
 
 常见的可以作为注册中心的组件有：ZooKeeper、Eureka、Nacos...。
 
 1. **ZooKeeper 保证的是 CP。** 任何时刻对 ZooKeeper 的读请求都能得到一致性的结果，但是， ZooKeeper 不保证每次请求的可用性比如在 Leader 选举过程中或者半数以上的机器不可用的时候服务就是不可用的。
+
 2. **Eureka 保证的则是 AP。** Eureka 在设计的时候就是优先保证 A （可用性）。在 Eureka 中不存在什么 Leader 节点，每个节点都是一样的、平等的。因此 Eureka 不会像 ZooKeeper 那样出现选举过程中或者半数以上的机器不可用的时候服务就是不可用的情况。 Eureka 保证即使大部分节点挂掉也不会影响正常提供服务，只要有一个节点是可用的就行了。只不过这个节点上的数据可能并不是最新的。
+
 3. **Nacos 不仅支持 CP 也支持 AP。**
 
-**为什么选择Zookeeper**
+   支持两种方式的注册中心，持久化和非持久化存储服务信息。
+
+   - **非持久AP**：直接存储在nacos服务节点的内存中，并且服务节点间采用去中心化的思想，服务节点采用hash分片存储注册信息
+   - **持久化CP**：使用Raft协议选举leader节点，同样采用过半机制将数据存储在leader节点上。
+
+**2. 为什么选择Zookeeper**
 
 1. Zookeeper 是 开源Dubbo 推荐的注册中心实现， 且原生 Java 并且可以用Curator操作
 2. Zookeeper 是满足 CP 原则的，相比于 Eureka 的AP 和Nacos的AP/CP 对于服务发现来说不是很占优势
@@ -276,7 +283,14 @@ ZAB（ZooKeeper Atomic Broadcast 原子广播） 协议是为分布式协调服�
 **协议两种基本的模式：崩溃恢复和消息广播**
 
 - **崩溃恢复** ：当整个服务框架在启动过程中，或是当 Leader 服务器出现网络中断、崩溃退出与重启等异常情况时，ZAB 协议就会进入恢复模式并选举产生新的Leader服务器。当选举产生了新的 Leader 服务器，同时集群中已经有过半的机器与该Leader服务器完成了状态同步之后，ZAB协议就会退出恢复模式。其中，**所谓的状态同步是指数据同步，用来保证集群中存在过半的机器能够和Leader服务器的数据状态保持一致**。
-- **消息广播** ：**当集群中已经有过半的Follower服务器完成了和Leader服务器的状态同步，那么整个服务框架就可以进入消息广播模式了。** 当一台同样遵守ZAB协议的服务器启动后加入到集群中时，如果此时集群中已经存在一个Leader服务器在负责进行消息广播，那么新加入的服务器就会自觉地进入数据恢复模式：找到Leader所在的服务器，并与其进行数据同步，然后一起参与到消息广播流程中去。
+
+- **消息广播** ：
+
+  **当集群中已经有过半的Follower服务器完成了和Leader服务器的状态同步，那么整个服务框架就可以进入消息广播模式了。**
+
+  集群中zk在数据更新的时候，通过leader节点将将消息广播给其他follower节点，采用简单的两阶段提交模式，先request->ack->commit，当超过一半的follower节点响应可以提交就更新代码。
+
+  当一台同样遵守ZAB协议的服务器启动后加入到集群中时，如果此时集群中已经存在一个Leader服务器在负责进行消息广播，那么新加入的服务器就会自觉地进入数据恢复模式：找到Leader所在的服务器，并与其进行数据同步，然后一起参与到消息广播流程中去。
 
 https://www.jianshu.com/p/fb527a64deee
 
@@ -286,3 +300,107 @@ https://www.cnblogs.com/makelu/p/11123103.html
 
 #### Raft协议
 
+系统中每个结点有三个组件：
+
+- **状态机**: 当我们说一致性的时候，实际就是在说要保证这个状态机的一致性。状态机会从log里面取出所有的命令，然后执行一遍，得到的结果就是我们对外提供的保证了一致性的数据
+- **Log**: 保存了所有修改记录
+- **一致性模块**: 一致性模块算法就是用来保证写入的log的命令的一致性，这也是raft算法核心内容
+
+raft架构如下图![img](https://typora-image-ariellauu.oss-cn-beijing.aliyuncs.com/uPic/v2-e747e997d58aee9252b187c8434a1cc1_1440w.jpg)
+
+协议内容可以分为以下几个主要模块：
+
+##### 1. Leader election
+
+Raft协议的每个副本都会处于三种状态之一：
+
+- **Leader**：所有请求的处理者，Leader副本接受client的更新请求，本地处理后再同步至多个其他副本；
+- **Follower**：请求的被动更新者，从Leader接受更新请求，然后写入本地日志文件
+- **Candidate**：如果Follower副本在一段时间内没有收到Leader副本的心跳，则判断Leader可能已经故障，此时启动选主过程，此时副本会变成Candidate状态，直到选主结束。
+
+时间被分为很多连续的随机长度的term，term有唯一的id。每个term一开始就进行选主：
+
+1. Follower将自己维护的current_term_id加1。
+2. 然后将自己的状态转成Candidate
+3. 发送RequestVoteRPC消息(带上current_term_id) 给 其它所有server
+
+这个过程会有三种结果：
+
+- 自己被选成了主。当收到了majority的投票后，状态切成Leader，并且定期给其它的所有server发心跳消息（不带log的AppendEntriesRPC）以告诉对方自己是current_term_id所标识的term的leader。每个term最多只有一个leader，term id作为logical clock，在每个RPC消息中都会带上，用于检测过期的消息。当一个server收到的RPC消息中的rpc_term_id比本地的current_term_id更大时，就更新current_term_id为rpc_term_id，并且如果当前state为leader或者candidate时，将自己的状态切成follower。如果rpc_term_id比本地的current_term_id更小，则拒绝这个RPC消息。
+- 别人成为了主。如1所述，当Candidator在等待投票的过程中，收到了大于或者等于本地的current_term_id的声明对方是leader的AppendEntriesRPC时，则将自己的state切成follower，并且更新本地的current_term_id。
+- 没有选出主。当投票被瓜分，没有任何一个candidate收到了majority的vote时，没有leader被选出。这种情况下，每个candidate等待的投票的过程就超时了，接着candidates都会将本地的current_term_id再加1，发起RequestVoteRPC进行新一轮的leader election。
+
+投票策略：
+
+- 每个节点只会给每个term投一票，具体的是否同意和后续的Safety有关。
+- 当投票被瓜分后，所有的candidate同时超时，然后有可能进入新一轮的票数被瓜分，为了避免这个问题，Raft采用一种很简单的方法：每个Candidate的election timeout从150ms-300ms之间随机取，那么第一个超时的Candidate就可以发起新一轮的leader election，带着最大的term_id给其它所有server发送RequestVoteRPC消息，从而自己成为leader，然后给他们发送心跳消息以告诉他们自己是主。
+
+##### 2. Log Replication
+
+当Leader被选出来后，就可以接受客户端发来的请求了，每个请求包含一条需要被replicated state machines执行的命令。leader会把它作为一个log entry append到日志中，然后给其它的server发AppendEntriesRPC请求。当Leader确定一个log entry被safely replicated了（大多数副本已经将该命令写入日志当中），就apply这条log entry到状态机中然后返回结果给客户端。如果某个Follower宕机了或者运行的很慢，或者网络丢包了，则会一直给这个Follower发AppendEntriesRPC直到日志一致。
+
+当一条日志是commited时，Leader才可以将它应用到状态机中。Raft保证一条commited的log entry已经持久化了并且会被所有的节点执行。
+
+当一个新的Leader被选出来时，它的日志和其它的Follower的日志可能不一样，这个时候，就需要一个机制来保证日志的一致性。一个新leader产生时，集群状态可能如下：
+
+![img](https://typora-image-ariellauu.oss-cn-beijing.aliyuncs.com/uPic/v2-8884bbb61f0eed0aba4e8320c2692783_1440w.jpg)
+
+最上面这个是新Leader，a~f是Follower，每个格子代表一条log entry，格子内的数字代表这个log entry是在哪个term上产生的。
+
+新Leader产生后，就以Leader上的log为准。其它的follower要么少了数据比如b，要么多了数据，比如d，要么既少了又多了数据，比如f。
+
+因此，需要有一种机制来让leader和follower对log达成一致，leader会为每个follower维护一个nextIndex，表示leader给各个follower发送的下一条log entry在log中的index，初始化为leader的最后一条log entry的下一个位置。leader给follower发送AppendEntriesRPC消息，带着(term_id, (nextIndex-1))， term_id即(nextIndex-1)这个槽位的log entry的term_id，follower接收到AppendEntriesRPC后，会从自己的log中找是不是存在这样的log entry，如果不存在，就给leader回复拒绝消息，然后leader则将nextIndex减1，再重复，知道AppendEntriesRPC消息被接收。
+
+##### 3. Safety
+
+- 哪些follower有资格成为leader?
+
+> Raft保证被选为新leader的节点拥有所有已提交的log entry，这与ViewStamped Replication不同，后者不需要这个保证，而是通过其他机制从follower拉取自己没有的提交的日志记录
+
+这个保证是在RequestVoteRPC阶段做的，candidate在发送RequestVoteRPC时，会带上自己的最后一条日志记录的term_id和index，其他节点收到消息时，如果发现自己的日志比RPC请求中携带的更新，拒绝投票。日志比较的原则是，如果本地的最后一条log entry的term id更大，则更新，如果term id一样大，则日志更多的更大(index更大)。
+
+- 哪些日志记录被认为是commited?
+
+1）leader正在replicate当前term（即term 2）的日志记录给其它Follower，一旦leader确认了这条log entry被majority写盘了，这条log entry就被认为是committed。如图a，S1作为当前term即term2的leader，log index为2的日志被majority写盘了，这条log entry被认为是commited
+
+2）leader正在replicate更早的term的log entry给其它follower。图b的状态是这么出来的。
+
+4. ##### Log Compaction
+
+在实际的系统中，不能让日志无限增长，否则系统重启时需要花很长的时间进行回放，从而影响availability。Raft采用对整个系统进行snapshot来处理，snapshot之前的日志都可以丢弃。Snapshot技术在Chubby和ZooKeeper系统中都有采用。
+
+Raft使用的方案是：**每个副本独立的对自己的系统状态进行Snapshot，并且只能对已经提交的日志记录（已经应用到状态机）进行snapshot。**
+
+Snapshot中包含以下内容：
+
+- 日志元数据，最后一条commited log entry的 (log index, last_included_term)。这两个值在Snapshot之后的第一条log entry的AppendEntriesRPC的consistency check的时候会被用上，之前讲过。一旦这个server做完了snapshot，就可以把这条记录的最后一条log index及其之前的所有的log entry都删掉。
+- 系统状态机：存储系统当前状态（这是怎么生成的呢？）
+
+snapshot的缺点就是不是增量的，即使内存中某个值没有变，下次做snapshot的时候同样会被dump到磁盘。当leader需要发给某个follower的log entry被丢弃了(因为leader做了snapshot)，leader会将snapshot发给落后太多的follower。或者当新加进一台机器时，也会发送snapshot给它。发送snapshot使用新的RPC，InstalledSnapshot。
+
+做snapshot有一些需要注意的性能点，1. 不要做太频繁，否则消耗磁盘带宽。 2. 不要做的太不频繁，否则一旦节点重启需要回放大量日志，影响可用性。系统推荐当日志达到某个固定的大小做一次snapshot。3. 做一次snapshot可能耗时过长，会影响正常log entry的replicate。这个可以通过使用copy-on-write的技术来避免snapshot过程影响正常log entry的replicate。
+
+5. ##### 集群拓扑变化
+
+集群拓扑变化的意思是在运行过程中多副本集群的结构性变化，如增加/减少副本数、节点替换等。
+
+Raft协议定义时也考虑了这种情况，从而避免由于下线老集群上线新集群而引起的系统不可用。Raft也是利用上面的Log Entry和一致性协议来实现该功能。
+
+假设在Raft中，老集群配置用Cold表示，新集群配置用Cnew表示，整个集群拓扑变化的流程如下：
+
+1. 当集群成员配置改变时，leader收到人工发出的重配置命令从Cold切成Cnew；
+2. Leader副本在本地生成一个新的log entry，其内容是Cold∪Cnew，代表当前时刻新旧拓扑配置共存，写入本地日志，同时将该log entry推送至其他Follower节点
+3. Follower副本收到log entry后更新本地日志，并且此时就以该配置作为自己了解的全局拓扑结构，
+4. 如果多数Follower确认了Cold U Cnew这条日志的时候，Leader就Commit这条log entry；
+5. 接下来Leader生成一条新的log entry，其内容是全新的配置Cnew，同样将该log entry写入本地日志，同时推送到Follower上；
+6. Follower收到新的配置日志Cnew后，将其写入日志，并且从此刻起，就以该新的配置作为系统拓扑，并且如果发现自己不在Cnew这个配置中会自动退出
+7. Leader收到多数Follower的确认消息以后，给客户端发起命令执行成功的消息
+
+异常分析
+
+- 如果Leader的Cold U Cnew尚未推送到Follower，Leader就挂了，此时选出的新的Leader并不包含这条日志，此时新的Leader依然使用Cold作为全局拓扑配置
+- 如果Leader的Cold U Cnew推送到大部分的Follower后就挂了，此时选出的新的Leader可能是Cold也可能是Cnew中的某个Follower；
+- 如果Leader在推送Cnew配置的过程中挂了，那么和2一样，新选出来的Leader可能是Cold也可能是Cnew中的某一个，那么此时客户端继续执行一次改变配置的命令即可
+- 如果大多数的Follower确认了Cnew这个消息后，那么接下来即使Leader挂了，新选出来的Leader也肯定是位于Cnew这个配置中的，因为有Raft的协议保证。
+
+[Raft协议详解](https://zhuanlan.zhihu.com/p/27207160)

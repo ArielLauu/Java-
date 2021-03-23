@@ -106,7 +106,7 @@ AOP 面向切面编程，就是将那些与业务无关，却为业务模块所�
 
    - **创建代理类**：接着通过 ProxyFactory 的 getProxy方法创建代理类。这时候需要判断是JDK代理 or CGLib代理。判断准则：
 
-     - CGLib：采取了优化策略 / ProxyTargetClas=true / 用户没有实现接口
+     - CGLib：采取了优化策略 / ProxyTargetClass=true / 用户没有实现接口
      - JDK动态代理：需要代理的类本身就是一个接口 / 需要被代理的类本身就是一个通过jdk动态代理生成的类/ 其他所有情况
 
      tips：ProxyTargetClas=true意味着基于类代理（cglib），反之意味着基于接口代理（JDK）
@@ -156,7 +156,7 @@ https://www.zhihu.com/question/23641679?sort=created （里面涉及cglib动态�
 
 #### 循环依赖与AOP的关系（Spring AOP怎么实现，围绕bean生命周期去讲）
 
-1. **三级缓存的添加**：在循环依赖中，通过三级缓存 `singletonFactory.getObject()` 获取的实例，经过了SmartInstantiationAwareBeanPostProcessor的`getEarlyBeanReference`方法处理。这步操作是`BeanPostProcessor`的一种,目的是用于`被提前引用`时进行拓展。(曝光的时候并不调用该后置处理器，只有曝光，且被提前引用的时候才调用，确保了`被提前引用`这个时机触发)
+1. **三级缓存的添加**：在循环依赖中，通过三级缓存 `singletonFactory.getObject()` 获取的实例，经过了SmartInstantiationAwareBeanPostProcessor的`getEarlyBeanReference`方法处理。这步操作是`BeanPostProcessor`的一种, 目的是用于`被提前引用`时进行拓展。(曝光的时候并不调用该后置处理器，只有曝光，且被提前引用的时候才调用，确保了`被提前引用`这个时机触发)
 2. **提前曝光代理earlyProxyReferences**：`getEarlyBeanReference`方法里有一个 `wrapIfNecessary`方法，用对进行AOP代理。所以循环依赖中(先创建A)，B的提前引用，将引用到A的代理。Spring IOC最后返回的bean，也是经过代理后的bean
 
 **Spring AOP代理时机**：

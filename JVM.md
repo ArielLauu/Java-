@@ -441,7 +441,7 @@ https://www.cnblogs.com/july-sunny/p/12618054.html
    - **CMS优点：**并发收集、低停顿
 
    - **CMS缺点**：
-     - **无法处理浮动垃圾**。如果预留的内存不够存放浮动垃圾，就会出现`Concurrent Mode Failure`，虚拟机此时用`Serial Old`替代`CMS`
+     - **无法处理浮动垃圾**。如果预留的内存不够存放浮动垃圾，就会出现`Concurrent Mode Failure`，虚拟机此时用`Serial Old`替代`CMS` （浮动垃圾：并发清除阶段产生的垃圾，等下次GC才能回收）
      - **吞吐量低**：低停顿时间牺牲吞吐量为代价
      - **标记-清除法**产生的**空间碎片**，导致需要提前`Full GC`
 
